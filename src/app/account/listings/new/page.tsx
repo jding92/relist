@@ -49,7 +49,10 @@ export default function NewListingPage() {
         body: formData,
       });
       
-      if (!uploadResponse.ok) throw new Error('Failed to upload images');
+      if (!uploadResponse.ok) {
+        console.error('Failed to upload images', uploadResponse);
+        throw new Error('Failed to upload images');
+      }
       
       const { imageUrls } = await uploadResponse.json();
 
