@@ -16,6 +16,8 @@ export default function NewListingPage() {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([]);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [images, setImages] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   const togglePlatform = (platformId: string) => {
     setSelectedPlatforms(prev =>
@@ -33,50 +35,87 @@ export default function NewListingPage() {
     setImages(files);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const formData = new FormData(e.currentTarget);
     
-    // Create FormData for image upload
-    const formData = new FormData();
-    images.forEach((file, index) => {
-      formData.append(`image${index}`, file);
-    });
-
     try {
-      // Upload images first
-      const uploadResponse = await fetch('/api/listings/images', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!uploadResponse.ok) {
-        console.error('Failed to upload images', uploadResponse);
-        throw new Error('Failed to upload images');
-      }
-      
-      const { imageUrls } = await uploadResponse.json();
+      setIsUploading(true);
+      setUploadProgress(0);
 
-      // Create listing with image URLs
-      const listingResponse = await fetch('/api/listings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          platforms: selectedPlatforms,
-          listing: {
-            // ... other form data
-            images: imageUrls,
-          },
-        }),
+      // Create FormData for image upload
+      const imageFormData = new FormData();
+      images.forEach((file, index) => {
+        imageFormData.append(`file${index}`, file);
       });
 
-      if (!listingResponse.ok) throw new Error('Failed to create listing');
+      // Upload images with progress tracking
+      const xhr = new XMLHttpRequest();
+      
+      const uploadPromise = new Promise((resolve, reject) => {
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const progress = Math.round((event.loaded * 100) / event.total);
+            setUploadProgress(progress);
+          }
+        });
 
-      // Handle success (redirect or show message)
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(JSON.parse(xhr.responseText));
+          } else {
+            reject(new Error('Upload failed'));
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+      });
+
+      xhr.open('POST', '/api/listings/images');
+      xhr.send(imageFormData);
+
+      const { imageUrls } = await uploadPromise as { imageUrls: string[] };
+
+      // Get form data
+      const listingData = {
+        title: formData.get('title') as string,
+        description: formData.get('description') as string,
+        price: parseFloat(formData.get('price') as string),
+        quantity: parseInt(formData.get('quantity') as string),
+        platforms: selectedPlatforms,
+        images: imageUrls,
+      };
+
+      // Create listing
+      const listingPromise = new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(JSON.parse(xhr.responseText));
+          } else {
+            reject(new Error('Failed to create listing'));
+          }
+        });
+
+        xhr.addEventListener('error', () => reject(new Error('Failed to create listing')));
+
+        xhr.open('POST', '/api/listings');
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(JSON.stringify(listingData));
+      });
+
+      await listingPromise;
+
+      // Handle success
+      // You might want to redirect to the listings page or show a success message
+      
     } catch (error) {
-      // Handle error
       console.error('Error creating listing:', error);
+      // Show error message to user
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -162,7 +201,11 @@ export default function NewListingPage() {
           <h3 className="mb-4 text-lg font-medium text-gray-900">
             Images
           </h3>
-          <ImageUpload onChange={handleImagesChange} />
+          <ImageUpload 
+            onChange={handleImagesChange}
+            isUploading={isUploading}
+            uploadProgress={uploadProgress}
+          />
         </div>
 
         {/* Listing Details */}
@@ -173,6 +216,7 @@ export default function NewListingPage() {
                 Title
               </label>
               <input
+                name="title"
                 type="text"
                 className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-pink-500 focus:outline-none focus:ring-1 focus:ring-pink-500"
                 placeholder="Enter listing title"
@@ -184,6 +228,7 @@ export default function NewListingPage() {
                 Description
               </label>
               <textarea
+                name="description"
                 rows={4}
                 className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-pink-500 focus:outline-none focus:ring-1 focus:ring-pink-500"
                 placeholder="Describe your item..."
@@ -200,6 +245,7 @@ export default function NewListingPage() {
                     <span className="text-gray-500">$</span>
                   </div>
                   <input
+                    name="price"
                     type="text"
                     className="block w-full rounded-lg border border-gray-300 pl-7 pr-3 py-2 focus:border-pink-500 focus:outline-none focus:ring-1 focus:ring-pink-500"
                     placeholder="0.00"
@@ -212,6 +258,7 @@ export default function NewListingPage() {
                   Quantity
                 </label>
                 <input
+                  name="quantity"
                   type="number"
                   min="1"
                   className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 shadow-sm focus:border-pink-500 focus:outline-none focus:ring-1 focus:ring-pink-500"
